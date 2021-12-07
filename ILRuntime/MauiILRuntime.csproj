@@ -3,8 +3,8 @@
 	<PropertyGroup>
 		<TargetFrameworks>net6.0;net6.0-android;net6.0-ios;net6.0-maccatalyst</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(MSBuildRuntimeType)' == 'Full'">$(TargetFrameworks);net6.0-windows10.0.19041</TargetFrameworks>
-		<RootNamespace>ILRuntime.Mono.Cecil</RootNamespace>
-		<AssemblyName>ILRuntime.Mono.Cecil</AssemblyName>
+		<RootNamespace>ILRuntime</RootNamespace>
+		<AssemblyName>ILRuntime</AssemblyName>
 		<UseMaui>true</UseMaui>
 		<SingleProject>true</SingleProject>
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -14,19 +14,13 @@
 		<SupportedOSPlatformVersion Condition="'$(TargetFramework)' == 'net6.0-android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$(TargetFramework.Contains('-windows'))">10.0.17763.0</TargetPlatformMinVersion>
-	</PropertyGroup>
-	<PropertyGroup>
-		<SignAssembly>false</SignAssembly>
-	</PropertyGroup>
-	<ItemGroup>
-    <Compile Include="ProjectInfo.cs" />
-    <Compile Include="Mono\*.cs" />
-    <Compile Include="Mono.Cecil\*.cs" />
-    <Compile Include="Mono.Cecil.Cil\*.cs" />
-    <Compile Include="Mono.Cecil.Metadata\*.cs" />
-    <Compile Include="Mono.Cecil.PE\*.cs" />
-    <Compile Include="Mono.Collections.Generic\*.cs" />
-    <Compile Include="Mono.Security.Cryptography\*.cs" />
-  </ItemGroup>
 
+		<DefineConstants>TRACE;DEBUG;NET_4_6;NO_PROFILER;OUTPUT_JIT_RESULT</DefineConstants>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\Mono.Cecil\Mono.Cecil.csproj" />
+	</ItemGroup>
+	
 </Project>

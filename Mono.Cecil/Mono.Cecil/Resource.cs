@@ -16,7 +16,7 @@ namespace ILRuntime.Mono.Cecil {
 		AssemblyLinked,
 	}
 
-	public abstract class Resource {
+	public abstract partial class Resource {
 
 		string name;
 		uint attributes;
