@@ -72,6 +72,8 @@ namespace ILRuntime.Runtime.Enviorment
         /// </summary>
         public bool AllowUnboundCLRMethod { get; set; }
 
+        public ILRuntime.Mono.Collections.Generic.Collection<ILRuntime.Mono.Cecil.Resource> Resources { get; set; }
+
 #if DEBUG && !NO_PROFILER
         public int UnityMainThreadID { get; set; }
         public bool IsNotUnityMainThread()
@@ -560,6 +562,8 @@ namespace ILRuntime.Runtime.Enviorment
         public void LoadAssembly(System.IO.Stream stream, System.IO.Stream symbol, ISymbolReaderProvider symbolReader)
         {
             var module = ModuleDefinition.ReadModule(stream); //从MONO中加载模块
+
+            Resources = module.Resources;
 
             if (symbolReader != null && symbol != null)
             {
