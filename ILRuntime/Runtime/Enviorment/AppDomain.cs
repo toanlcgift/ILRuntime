@@ -17,11 +17,16 @@ using ILRuntime.Other;
 using ILRuntime.Runtime.Intepreter.RegisterVM;
 using System.Threading;
 
+#if DEBUG && !DISABLE_ILRUNTIME_DEBUG
+using AutoList = System.Collections.Generic.List<object>;
+#else
+using AutoList = ILRuntime.Other.UncheckedList<object>;
+#endif
 namespace ILRuntime.Runtime.Enviorment
 {
-    public unsafe delegate StackObject* CLRRedirectionDelegate(ILIntepreter intp, StackObject* esp, IList<object> mStack, CLRMethod method, bool isNewObj);
+    public unsafe delegate StackObject* CLRRedirectionDelegate(ILIntepreter intp, StackObject* esp, AutoList mStack, CLRMethod method, bool isNewObj);
     public delegate object CLRFieldGetterDelegate(ref object target);
-    public unsafe delegate StackObject* CLRFieldBindingDelegate(ref object target, ILIntepreter __intp, StackObject* __esp, IList<object> __mStack);
+    public unsafe delegate StackObject* CLRFieldBindingDelegate(ref object target, ILIntepreter __intp, StackObject* __esp, AutoList __mStack);
     public delegate void CLRFieldSetterDelegate(ref object target, object value);
     public delegate object CLRMemberwiseCloneDelegate(ref object target);
     public delegate object CLRCreateDefaultInstanceDelegate();
@@ -51,6 +56,7 @@ namespace ILRuntime.Runtime.Enviorment
         List<IType> typesByIndex = new List<IType>();
         ThreadSafeDictionary<int, IType> mapTypeToken = new ThreadSafeDictionary<int, IType>();
         ThreadSafeDictionary<int, IMethod> mapMethod = new ThreadSafeDictionary<int, IMethod>();
+        ThreadSafeDictionary<int, Exception> mapException = new ThreadSafeDictionary<int, Exception>();
         ThreadSafeDictionary<long, string> mapString = new ThreadSafeDictionary<long, string>();
         Dictionary<System.Reflection.MethodBase, CLRRedirectionDelegate> redirectMap = new Dictionary<System.Reflection.MethodBase, CLRRedirectionDelegate>();
         Dictionary<System.Reflection.FieldInfo, CLRFieldGetterDelegate> fieldGetterMap = new Dictionary<System.Reflection.FieldInfo, CLRFieldGetterDelegate>();
@@ -186,8 +192,18 @@ namespace ILRuntime.Runtime.Enviorment
             }
             mi = typeof(System.Type).GetMethod("GetTypeFromHandle");
             RegisterCLRMethodRedirection(mi, CLRRedirections.GetTypeFromHandle);
+            mi = typeof(System.Type).GetMethod("MakeGenericType");
+            RegisterCLRMethodRedirection(mi, CLRRedirections.TypeMakeGenericType);
             mi = typeof(object).GetMethod("GetType");
             RegisterCLRMethodRedirection(mi, CLRRedirections.ObjectGetType);
+            mi = typeof(Delegate).GetMethod("CreateDelegate", new Type[] { typeof(Type), typeof(MethodInfo) });
+            RegisterCLRMethodRedirection(mi, CLRRedirections.DelegateCreateDelegate);
+            mi = typeof(Delegate).GetMethod("CreateDelegate", new Type[] { typeof(Type), typeof(object), typeof(string) });
+            RegisterCLRMethodRedirection(mi, CLRRedirections.DelegateCreateDelegate2);
+            mi = typeof(Delegate).GetMethod("CreateDelegate", new Type[] { typeof(Type), typeof(object), typeof(MethodInfo) });
+            RegisterCLRMethodRedirection(mi, CLRRedirections.DelegateCreateDelegate3);
+            mi = typeof(Delegate).GetMethod("get_Target");
+            RegisterCLRMethodRedirection(mi, CLRRedirections.DelegateGetTarget);
             dMgr = new DelegateManager(this);
             dMgr.RegisterDelegateConvertor<Action>((dele) =>
             {
@@ -799,7 +815,7 @@ namespace ILRuntime.Runtime.Enviorment
                     UnityEngine.Debug.Log("CLRBindingUtils.Initialize Done in thread..");
 #endif
                 });
-                thread.Name = $"CLRBindings-Thread #{thread.ManagedThreadId}";
+                thread.Name = string.Format("CLRBindings-Thread #{0}",thread.ManagedThreadId);
                 thread.Start();
             }
             else
@@ -851,8 +867,9 @@ namespace ILRuntime.Runtime.Enviorment
                     for (int i = 0; i < genericArguments.Length; i++)
                     {
                         string key = null;
-                        if (bt is ILType ilt)
+                        if (bt is ILType)
                         {
+                            ILType ilt = (ILType)bt;
                             key = ilt.TypeDefinition.GenericParameters[i].FullName;
                         }
                         else
@@ -978,10 +995,17 @@ namespace ILRuntime.Runtime.Enviorment
                         depth++;
                         if (depth == 1)
                         {
-                            baseType = sb.ToString();
-                            sb.Length = 0;
-                            genericParams = new List<string>();
-                            continue;
+                            if (isArray && sb.Length == 0)
+                            {
+                                continue;
+                            }
+                            else
+                            {
+                                baseType = sb.ToString();
+                                sb.Length = 0;
+                                genericParams = new List<string>();
+                                continue;
+                            }
                         }
                     }
                     if (i == ',' && depth == 1)
@@ -1330,6 +1354,11 @@ namespace ILRuntime.Runtime.Enviorment
             IType t = GetType(type);
             if (t == null || t is CLRType)
                 return;
+            ILType ilType = (ILType)t;
+            foreach(var i in ilType.TypeDefinition.NestedTypes)
+            {
+                Prewarm(i.FullName, recursive);
+            }
             var methods = t.GetMethods();
             foreach (var i in methods)
             {
@@ -1520,6 +1549,18 @@ namespace ILRuntime.Runtime.Enviorment
             }
             return false;
         }
+
+        internal void CacheException(Exception ex)
+        {
+            mapException[ex.GetHashCode()] = ex;
+        }
+
+        internal Exception GetException(int token)
+        {
+            if (mapException.TryGetValue(token, out var ex))
+                return ex;
+            return null;
+        }
         
         
         internal IMethod GetMethod(object token, ILType contextType, ILMethod contextMethod, out bool invalidToken)
@@ -1566,7 +1607,7 @@ namespace ILRuntime.Runtime.Enviorment
                     genericArguments = new IType[gim.GenericArguments.Count];
                     for (int i = 0; i < genericArguments.Length; i++)
                     {
-                        if (gim.GenericArguments[i].IsGenericParameter)
+                        if (gim.GenericArguments[i].ContainsGenericParameter)
                             invalidToken = true;
                         var gt = GetType(gim.GenericArguments[i], contextType, contextMethod);
                         if (gt == null)
