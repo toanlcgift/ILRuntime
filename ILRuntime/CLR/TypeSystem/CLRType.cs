@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -10,9 +11,14 @@ using ILRuntime.Reflection;
 using ILRuntime.Runtime.Enviorment;
 using ILRuntime.Runtime.Stack;
 
+#if DEBUG && !DISABLE_ILRUNTIME_DEBUG
+using AutoList = System.Collections.Generic.List<object>;
+#else
+using AutoList = ILRuntime.Other.UncheckedList<object>;
+#endif
 namespace ILRuntime.CLR.TypeSystem
 {
-    public unsafe class CLRType : IType
+    public sealed unsafe class CLRType : IType
     {
         Type clrType;
         bool isPrimitive, isValueType, isEnum;
@@ -104,7 +110,7 @@ namespace ILRuntime.CLR.TypeSystem
             isPrimitive = clrType.IsPrimitive;
             isEnum = clrType.IsEnum;
             isValueType = clrType.IsValueType;
-            isDelegate = clrType.BaseType == typeof(MulticastDelegate);
+            isDelegate = clrType.BaseType == typeof(MulticastDelegate) || clrType == typeof(Delegate);
             if (isPrimitive)
             {
                 var t = TypeForCLR;
@@ -346,7 +352,7 @@ namespace ILRuntime.CLR.TypeSystem
 
                     if (memberwiseClone != null)
                     {
-                        var del = (Func<object, object>)memberwiseClone.CreateDelegate(typeof(Func<object, object>));
+                        var del = (Func<object, object>)Delegate.CreateDelegate(typeof(Func<object, object>), memberwiseClone);
                         memberwiseCloneDelegate = (ref object t) => del(t);
                     }
                     else
@@ -403,7 +409,7 @@ namespace ILRuntime.CLR.TypeSystem
             return null;
         }
 
-        public bool CopyFieldToStack(int hash, object target, Runtime.Intepreter.ILIntepreter intp, ref StackObject* esp, IList<object> mStack)
+        public bool CopyFieldToStack(int hash, object target, Runtime.Intepreter.ILIntepreter intp, ref StackObject* esp, AutoList mStack)
         {
             if (fieldMapping == null)
                 InitializeFields();
@@ -419,7 +425,7 @@ namespace ILRuntime.CLR.TypeSystem
                 return false;
         }
 
-        public bool AssignFieldFromStack(int hash, ref object target, Runtime.Intepreter.ILIntepreter intp, StackObject* esp, IList<object> mStack)
+        public bool AssignFieldFromStack(int hash, ref object target, Runtime.Intepreter.ILIntepreter intp, StackObject* esp, AutoList mStack)
         {
             if (fieldMapping == null)
                 InitializeFields();
@@ -575,7 +581,7 @@ namespace ILRuntime.CLR.TypeSystem
             fieldMapping = new Dictionary<string, int>();
             fieldInfoCache = new Dictionary<int, FieldInfo>();
 
-            var fields = clrType.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Static);
+            var fields = clrType.GetFields(BindingFlags.Public | BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Static).ToList();
             int idx = 0;
             bool hasValueTypeBinder = ValueTypeBinder != null;
             if (hasValueTypeBinder)
@@ -584,8 +590,13 @@ namespace ILRuntime.CLR.TypeSystem
             }
             if (hasValueTypeBinder || isEnum)
             {
-                orderedFieldTypes = new IType[fields.Length];
+                orderedFieldTypes = new IType[fields.Count];
             }
+
+            fields.Sort((a, b) =>
+            {
+                return a.MetadataToken - b.MetadataToken;
+            });
             foreach (var i in fields)
             {
                 int hashCode = i.GetHashCode();
@@ -892,7 +903,7 @@ namespace ILRuntime.CLR.TypeSystem
                 if (type is ILType)
                     return false;
                 Type cT = type != null ? type.TypeForCLR : typeof(object);
-                return TypeForCLR.IsAssignableFrom(cT);
+                return cT.IsAssignableFrom(TypeForCLR);
             }
         }
 
@@ -967,7 +978,7 @@ namespace ILRuntime.CLR.TypeSystem
                     }
 
                     argString = argString.Substring(0, argString.Length - 2);
-                    throw new Exception($"MakeGenericType failed : {clrType.FullName}<{argString}>");
+                    throw new Exception(string.Format("MakeGenericType failed : {0}<{1}>", clrType.FullName, argString));
                 }
 #endif
                 var res = new CLRType(newType, appdomain);

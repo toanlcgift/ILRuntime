@@ -6,9 +6,15 @@ using ILRuntime.Runtime.Stack;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+
+#if DEBUG && !DISABLE_ILRUNTIME_DEBUG
+using AutoList = System.Collections.Generic.List<object>;
+#else
+using AutoList = ILRuntime.Other.UncheckedList<object>;
+#endif
 namespace ILRuntime.CLR.Method
 {
-    public class CLRMethod : IMethod
+    public sealed class CLRMethod : IMethod
     {
         MethodInfo def;
         ConstructorInfo cDef;
@@ -21,7 +27,7 @@ namespace ILRuntime.CLR.Method
         IType[] genericArguments;
         Type[] genericArgumentsCLR;
         object[] invocationParam;
-        bool isDelegateInvoke;
+        bool isDelegateInvoke, isDelegateDynamicInvoke;
         int hashCode = -1;
         static int instance_id = 0x20000000;
 
@@ -76,6 +82,14 @@ namespace ILRuntime.CLR.Method
             get
             {
                 return isDelegateInvoke;
+            }
+        }
+
+        public bool IsDelegateDynamicInvoke
+        {
+            get
+            {
+                return isDelegateDynamicInvoke;
             }
         }
 
@@ -150,8 +164,17 @@ namespace ILRuntime.CLR.Method
                     ReturnType = domain.GetType(def.ReturnType.AssemblyQualifiedName);
                 }
             }
-            if (type.IsDelegate && def.Name == "Invoke")
-                isDelegateInvoke = true;
+            if (type.IsDelegate)
+            {
+                if (def.Name == "Invoke")
+                    isDelegateInvoke = true;
+                if (def.Name == "DynamicInvoke")
+                {
+                    isDelegateInvoke = true;
+                    isDelegateDynamicInvoke = true;
+                }
+
+            }
             isConstructor = false;
         }
         internal CLRMethod(ConstructorInfo def, CLRType type, ILRuntime.Runtime.Enviorment.AppDomain domain)
@@ -253,7 +276,7 @@ namespace ILRuntime.CLR.Method
             return (StackObject*)((long)a - sizeof(StackObject) * b);
         }
 
-        public unsafe object Invoke(Runtime.Intepreter.ILIntepreter intepreter, StackObject* esp, IList<object> mStack, bool isNewObj = false)
+        public unsafe object Invoke(Runtime.Intepreter.ILIntepreter intepreter, StackObject* esp, AutoList mStack, bool isNewObj = false)
         {
             if (parameters == null)
             {
@@ -329,7 +352,7 @@ namespace ILRuntime.CLR.Method
             }
         }
 
-        unsafe void FixReference(int paramCount, StackObject* esp, object[] param, IList<object> mStack, object instance, bool hasThis)
+        unsafe void FixReference(int paramCount, StackObject* esp, object[] param, AutoList mStack, object instance, bool hasThis)
         {
             var cnt = hasThis ? paramCount + 1 : paramCount;
             for (int i = cnt; i >= 1; i--)
@@ -417,7 +440,7 @@ namespace ILRuntime.CLR.Method
                 }
 
                 argString = argString.Substring(0, argString.Length - 2);
-                throw new Exception($"MakeGenericMethod failed : {def.DeclaringType.FullName}.{def.Name}<{argString}>");
+                throw new Exception(string.Format("MakeGenericMethod failed : {0}.{1}<{2}>", def.DeclaringType.FullName, def.Name, argString));
             }
 #endif
             var res = new CLRMethod(t, declaringType, appdomain);
@@ -438,6 +461,20 @@ namespace ILRuntime.CLR.Method
             if (hashCode == -1)
                 hashCode = System.Threading.Interlocked.Add(ref instance_id, 1);
             return hashCode;
+        }
+
+
+        bool? isExtend;
+        public bool IsExtend
+        {
+            get
+            {
+                if (isExtend == null)
+                {
+                    isExtend = this.IsExtendMethod();
+                }
+                return isExtend.Value;
+            }
         }
     }
 }

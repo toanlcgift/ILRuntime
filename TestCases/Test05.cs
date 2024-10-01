@@ -1,5 +1,6 @@
 ﻿
 //using CSEvilTestor;
+using ILRuntimeTest;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -210,6 +211,7 @@ namespace TestCases
             Console.WriteLine("a = " + a + ", b = " + b.ToString());
         }
 
+        [ILRuntimeTest(ExpectException = typeof(NotSupportedException))]
         public static void TestForEach()
         {
             List<string> a = new List<string>() { "1", "2", "3" };
@@ -266,15 +268,8 @@ namespace TestCases
             if (!called || cnt != 3)
                 throw new Exception();
         }
-        static System.Collections.IEnumerator TestForEachIteratorSub(List<object> list)
-        {
-            foreach (var item in list)
-            {
-                yield return null;//只能正常执行一次
-            }
-        }
 
-static string ParseOne(string line)
+        static string ParseOne(string line)
         {
             Console.WriteLine(line.ToString());            
             throw new NotSupportedException("error");            

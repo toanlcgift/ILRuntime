@@ -72,9 +72,13 @@ namespace ILRuntime.Reflection
                 ILRuntimePropertyInfo pi = new ILRuntimePropertyInfo(pd, type);
                 properties[i] = pi;
                 if (pd.GetMethod != null)
-                    pi.Getter = type.GetMethod(pd.GetMethod.Name, pd.GetMethod.Parameters.Count) as ILMethod;
+                {
+                    pi.Getter = type.GetMethod(pd.GetMethod.Name, pd.GetMethod.Parameters.Select(p => type.AppDomain.GetType(p.ParameterType, type, null)).ToList(), null) as ILMethod;
+                }
                 if (pd.SetMethod != null)
-                    pi.Setter = type.GetMethod(pd.SetMethod.Name, pd.SetMethod.Parameters.Count) as ILMethod;
+                {
+                    pi.Setter = type.GetMethod(pd.SetMethod.Name, pd.SetMethod.Parameters.Select(p => type.AppDomain.GetType(p.ParameterType, type, null)).ToList(), null) as ILMethod;
+                }
             }
         }
 
@@ -219,9 +223,11 @@ namespace ILRuntime.Reflection
                 InitializeCustomAttribute();
             if (inherit && BaseType != null)
             {
-                List<object> result = new List<object>();
+                List<Attribute> result = new List<Attribute>();
                 result.AddRange(customAttributes);
-                result.AddRange(BaseType.GetCustomAttributes(inherit));
+                var arr = BaseType.GetCustomAttributes(inherit) as Attribute[];
+                if (arr != null)
+                    result.AddRange(arr);
                 return result.ToArray();
             }
             return customAttributes;
@@ -231,7 +237,7 @@ namespace ILRuntime.Reflection
         {
             if (customAttributes == null)
                 InitializeCustomAttribute();
-            List<object> res = new List<object>();
+            List<Attribute> res = new List<Attribute>();
             for (int i = 0; i < customAttributes.Length; i++)
             {
                 if (attributeTypes[i].Equals((object)attributeType))
@@ -239,7 +245,9 @@ namespace ILRuntime.Reflection
             }
             if (inherit && BaseType != null)
             {
-                res.AddRange(BaseType.GetCustomAttributes(attributeType, inherit));
+                var arr = BaseType.GetCustomAttributes(attributeType, inherit) as Attribute[];
+                if (arr != null)
+                    res.AddRange(arr);
             }
             return res.ToArray();
         }
@@ -295,10 +303,22 @@ namespace ILRuntime.Reflection
         {
             if (fields == null)
                 InitializeFields();
-            foreach(var i in fields)
+            bool isPublic = (bindingAttr & BindingFlags.Public) == BindingFlags.Public;
+            bool isPrivate = (bindingAttr & BindingFlags.NonPublic) == BindingFlags.NonPublic;
+            bool isStatic = (bindingAttr & BindingFlags.Static) == BindingFlags.Static;
+            bool isInstance = (bindingAttr & BindingFlags.Instance) == BindingFlags.Instance;
+            bool isDeclaredOnly = (bindingAttr & BindingFlags.DeclaredOnly) == BindingFlags.DeclaredOnly;
+            for (int i = 0; i < fields.Length; i++)
             {
-                if (i.Name == name)
-                    return i;
+                FieldInfo fi = fields[i];
+                if (isPublic != fi.IsPublic && isPrivate != !fi.IsPublic)
+                    continue;
+                if ((isStatic != fi.IsStatic) && (isInstance != !fi.IsStatic))
+                    continue;
+                if (isDeclaredOnly && i < type.FieldStartIndex)
+                    continue;
+                if (fi.Name == name)
+                    return fi;
             }
             if (BaseType != null && BaseType is ILRuntimeWrapperType)
             {
@@ -315,14 +335,18 @@ namespace ILRuntime.Reflection
             bool isPrivate = (bindingAttr & BindingFlags.NonPublic) == BindingFlags.NonPublic;
             bool isStatic = (bindingAttr & BindingFlags.Static) == BindingFlags.Static;
             bool isInstance = (bindingAttr & BindingFlags.Instance) == BindingFlags.Instance;
+            bool isDeclaredOnly = (bindingAttr & BindingFlags.DeclaredOnly) == BindingFlags.DeclaredOnly;
             List<FieldInfo> res = new List<FieldInfo>();
-            foreach(var i in fields)
+            for (int i = 0; i < fields.Length; i++)
             {
-                if (isPublic != i.IsPublic && isPrivate != !i.IsPublic)
+                FieldInfo fi = fields[i];
+                if (isPublic != fi.IsPublic && isPrivate != !fi.IsPublic)
                     continue;
-                if ((isStatic != i.IsStatic) && (isInstance != !i.IsStatic))
+                if ((isStatic != fi.IsStatic) && (isInstance != !fi.IsStatic))
                     continue;
-                res.Add(i);
+                if (isDeclaredOnly && i < type.FieldStartIndex)
+                    continue;
+                res.Add(fi);
             }
             if ((bindingAttr & BindingFlags.DeclaredOnly) != BindingFlags.DeclaredOnly)
             {
@@ -405,7 +429,7 @@ namespace ILRuntime.Reflection
             }
             if ((bindingAttr & BindingFlags.DeclaredOnly) != BindingFlags.DeclaredOnly)
             {
-                if (BaseType != null && (BaseType is ILRuntimeWrapperType || BaseType is ILRuntimeType))
+                if (BaseType != null /*&& (BaseType is ILRuntimeWrapperType || BaseType is ILRuntimeType)*/)
                 {
                     res.AddRange(BaseType.GetMethods(bindingAttr));
                 }
@@ -442,7 +466,7 @@ namespace ILRuntime.Reflection
             }
             if ((bindingAttr & BindingFlags.DeclaredOnly) != BindingFlags.DeclaredOnly)
             {
-                if (BaseType != null && (BaseType is ILRuntimeWrapperType || BaseType is ILRuntimeType ))
+                if (BaseType != null /*&& (BaseType is ILRuntimeWrapperType || BaseType is ILRuntimeType )*/)
                 {
                     res.AddRange(BaseType.GetProperties(bindingAttr));
                 }
@@ -528,7 +552,7 @@ namespace ILRuntime.Reflection
             if (types == null)
             {
                 res = type.GetMethod(name);
-                if (res == null && !declearedOnly && type.BaseType is ILType)
+                if (res == null && !declearedOnly /*&& type.BaseType is ILType*/)
                     return BaseType.GetMethod(name, bindingAttr);
             }
             else
@@ -568,7 +592,7 @@ namespace ILRuntime.Reflection
             }
             if ((bindingAttr & BindingFlags.DeclaredOnly) != BindingFlags.DeclaredOnly)
             {
-                if (BaseType != null && BaseType is ILRuntimeWrapperType)
+                if (BaseType != null /*&& BaseType is ILRuntimeWrapperType*/)
                 {
                     return BaseType.GetProperty(name, bindingAttr);
                 }
@@ -613,10 +637,12 @@ namespace ILRuntime.Reflection
         {
             return type.GetHashCode();
         }
+#if NET_4_6 || NET_STANDARD_2_0
         public override bool Equals(Type o)
         {
             return o is ILRuntimeType ? ((ILRuntimeType)o).type == type : false;
         }
+#endif
         public override bool Equals(object o)
         {
             return o is ILRuntimeType ? ((ILRuntimeType)o).type == type : false;
